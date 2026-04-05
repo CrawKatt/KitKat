@@ -1,11 +1,9 @@
+use crate::utils::{CommandResult, Context, Error};
 use openai_api_rs::v1::api::Client;
 use openai_api_rs::v1::chat_completion;
 use openai_api_rs::v1::chat_completion::{ChatCompletionRequest, ChatCompletionResponse};
-use poise::{CreateReply};
+use poise::CreateReply;
 use regex::Regex;
-use serenity::all::{ButtonStyle, CreateButton};
-use serenity::builder::CreateActionRow;
-use crate::utils::{CommandResult, Context, Error};
 
 const SYSTEM_PROMPT: &str = "Eres un traductor experto bidireccional\
  entre Japonés y Español con nivel nativo en ambos idiomas.\
