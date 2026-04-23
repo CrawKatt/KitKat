@@ -1,11 +1,30 @@
+mod buttons;
+mod interactions;
+
+pub use buttons::*;
+
 use std::sync::Arc;
 use std::time::Duration;
-use poise::{serenity_prelude as serenity, Framework, FrameworkContext, FrameworkError};
-use poise::{Command, EditTracker};
-use serenity::all::FullEvent;
-use crate::commands::translate;
+use lavalink_rs::model::events::Events;
+use lavalink_rs::model::UserId;
+use lavalink_rs::prelude::{LavalinkClient, NodeBuilder, NodeDistributionStrategy};
+use poise::{serenity_prelude as serenity, Framework, FrameworkContext, FrameworkError, Command, EditTracker};
+use serenity::all::{FullEvent, Ready};
+use serenity::prelude::TypeMapKey;
+use reqwest::Client as HttpClient;
+use crate::audio::ready_event;
+use crate::commands::*;
 
-pub struct Data;
+#[derive(Debug)]
+pub struct HttpKey;
+
+impl TypeMapKey for HttpKey {
+    type Value = HttpClient;
+}
+
+pub struct Data {
+    pub lavalink: LavalinkClient
+}
 
 pub type CommandResult = Result<(), Error>;
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -29,21 +48,56 @@ pub fn create_framework() -> Framework<Data, Error> {
             ),
             ..Default::default()
         })
-        .setup(|ctx, _ready, framework| {
+        .setup(|ctx, ready, framework| {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                Ok(Data)
+                lavalink_handler(ready).await
             })
         }).build()
 }
 
+async fn lavalink_handler(ready: &Ready) -> Result<Data, Error> {
+    let lavalink_host = dotenvy::var("LAVALINK_HOST").expect("missing LAVALINK_HOST");
+    let lavalink_port = dotenvy::var("LAVALINK_PORT").expect("missing LAVALINK_PORT");
+    let lavalink_password = dotenvy::var("LAVALINK_PASSWORD").expect("missing LAVALINK_PASSWORD");
+
+    let node = NodeBuilder {
+        hostname: format!("{lavalink_host}:{lavalink_port}"),
+        is_ssl: true,
+        events: Events::default(),
+        password: lavalink_password,
+        user_id: UserId(ready.user.id.get()),
+        session_id: None,
+    };
+
+    let events = Events {
+        ready: Some(ready_event),
+        ..Default::default()
+    };
+
+    println!("Lavalink connecting to {lavalink_host}:{lavalink_port} (SSL: true)...");
+
+    let lavalink: LavalinkClient = LavalinkClient::new(
+        events,
+        vec![node],
+        NodeDistributionStrategy::round_robin()
+    ).await;
+
+    println!("Lavalink client initialized.");
+
+    Ok(Data {
+        lavalink,
+    })
+}
+
 async fn event_handler(
-    _ctx: &serenity::Context,
+    ctx: &serenity::Context,
     event: &FullEvent,
-    _framework: FrameworkContext<'_, Data, Error>
+    framework: FrameworkContext<'_, Data, Error>
 ) -> CommandResult {
     match event {
         FullEvent::Ready { data_about_bot } => println!("Logged in as {}", data_about_bot.user.name),
+        FullEvent::InteractionCreate { interaction } => interactions::handler(ctx, interaction, &framework).await?,
         _ => { println!("Unhandled event: {:?}", event.snake_case_name()) }
     }
 
@@ -68,6 +122,13 @@ pub async fn error_handler(error: FrameworkError<'_, Data, Error>) {
 
 pub fn load_commands() -> Vec<Command<Data, Error>> {
     vec![
-        translate()
+        translate(),
+        join(),
+        play(),
+        pause(),
+        resume(),
+        skip(),
+        stop(),
+        queue()
     ]
 }

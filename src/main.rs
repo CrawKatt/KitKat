@@ -1,8 +1,11 @@
-use crate::utils::{create_framework, CommandResult};
+use crate::utils::{create_framework, CommandResult, HttpKey};
 use poise::serenity_prelude as serenity;
+use songbird::SerenityInit;
+use reqwest::Client as HttpClient;
 
 mod commands;
 mod utils;
+mod audio;
 
 #[tokio::main]
 async fn main() -> CommandResult {
@@ -11,6 +14,8 @@ async fn main() -> CommandResult {
     let framework = create_framework();
     let mut client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)
+        .register_songbird()
+        .type_map_insert::<HttpKey>(HttpClient::new())
         .await?;
 
     client.start().await?;
