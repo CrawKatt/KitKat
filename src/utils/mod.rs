@@ -98,7 +98,7 @@ async fn event_handler(
     match event {
         FullEvent::Ready { data_about_bot } => println!("Logged in as {}", data_about_bot.user.name),
         FullEvent::InteractionCreate { interaction } => interactions::handler(ctx, interaction, &framework).await?,
-        _ => { println!("Unhandled event: {:?}", event.snake_case_name()) }
+        _ => ()
     }
 
     Ok(())
@@ -124,6 +124,7 @@ pub fn load_commands() -> Vec<Command<Data, Error>> {
     vec![
         translate(),
         join(),
+        leave(),
         play(),
         pause(),
         resume(),
