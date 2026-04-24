@@ -5,6 +5,8 @@ mod stop;
 mod skip;
 mod queue;
 
+use lavalink_rs::model::player::ConnectionInfo;
+use lavalink_rs::model::ChannelId as LavalinkChannelId;
 pub use play::*;
 pub use pause::*;
 pub use resume::*;
@@ -41,6 +43,33 @@ pub async fn join(ctx: Context<'_>) -> CommandResult {
     Ok(())
 }
 
+#[poise::command(
+    prefix_command,
+    slash_command,
+    category = "Audio",
+    user_cooldown = 10,
+    guild_only,
+)]
+pub async fn leave(ctx: Context<'_>) -> CommandResult {
+    let (guild_id, channel_id) = get_guild_id_and_channel_id(ctx).await?;
+
+    if channel_id.is_none() {
+        ctx.say("No estoy en un canal de voz para salir").await?;
+        return Ok(())
+    }
+
+    let manager = songbird::get(ctx.serenity_context())
+        .await
+        .ok_or("No pude obtener el Songbird VoiceManager")?;
+
+    manager.remove(guild_id).await?;
+
+    let lavalink = &ctx.data().lavalink;
+    let _ = lavalink.delete_player(guild_id.get()).await;
+
+    Ok(())
+}
+
 pub async fn try_join(ctx: Context<'_>, guild: Guild) -> CommandResult {
     let channel_id = guild
         .voice_states
@@ -52,9 +81,17 @@ pub async fn try_join(ctx: Context<'_>, guild: Guild) -> CommandResult {
         .await
         .ok_or("No se pudo obtener el Songbird VoiceManager")?;
 
-    let already_joined = manager.get(guild.id).is_some();
-    if !already_joined {
-        let _ = manager.join(guild.id, channel_id).await?;
+    let lavalink = &ctx.data().lavalink;
+    if lavalink.get_player_context(guild.id.get()).is_none() {
+        let (connection_info, _) = manager.join_gateway(guild.id, channel_id).await?;
+        let lava_info = ConnectionInfo {
+            session_id: connection_info.session_id,
+            token: connection_info.token,
+            endpoint: connection_info.endpoint,
+            channel_id: Some(LavalinkChannelId::from(channel_id.get())),
+        };
+
+        lavalink.create_player_context(guild.id.get(), lava_info).await?;
     }
 
     Ok(())
