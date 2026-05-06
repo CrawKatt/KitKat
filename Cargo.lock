@@ -1750,6 +1750,7 @@ dependencies = [
  "anyhow",
  "dotenvy",
  "lavalink-rs",
+ "once_cell",
  "openai-api-rs",
  "poise",
  "regex",
