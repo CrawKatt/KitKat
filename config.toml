@@ -1,0 +1,10 @@
+[antispam]
+# ID del canal donde el bot enviara el aviso cuando detecte spam.
+# alert_channel_id = 123456789012345678
+
+# Cantidad de segundos para considerar que el mismo mensaje con imagenes
+# esta siendo iterado por varios canales en un lapso anormalmente corto.
+duplicate_window_seconds = 12
+
+# Cantidad minima de canales distintos antes de aplicar la sancion.
+distinct_channels_threshold = 3

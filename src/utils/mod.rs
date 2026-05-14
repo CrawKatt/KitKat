@@ -1,19 +1,23 @@
+mod antispam;
 mod buttons;
 mod interactions;
 
 pub use buttons::*;
 
-use std::sync::Arc;
-use std::time::Duration;
-use lavalink_rs::model::events::Events;
-use lavalink_rs::model::UserId;
-use lavalink_rs::prelude::{LavalinkClient, NodeBuilder, NodeDistributionStrategy};
-use poise::{serenity_prelude as serenity, Framework, FrameworkContext, FrameworkError, Command, EditTracker};
-use serenity::all::{FullEvent, Ready};
-use serenity::prelude::TypeMapKey;
-use reqwest::Client as HttpClient;
 use crate::audio::ready_event;
 use crate::commands::*;
+use antispam::AntiSpam;
+use lavalink_rs::model::UserId;
+use lavalink_rs::model::events::Events;
+use lavalink_rs::prelude::{LavalinkClient, NodeBuilder, NodeDistributionStrategy};
+use poise::{
+    Command, EditTracker, Framework, FrameworkContext, FrameworkError, serenity_prelude as serenity,
+};
+use reqwest::Client as HttpClient;
+use serenity::all::{FullEvent, Ready};
+use serenity::prelude::TypeMapKey;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct HttpKey;
@@ -23,7 +27,8 @@ impl TypeMapKey for HttpKey {
 }
 
 pub struct Data {
-    pub lavalink: LavalinkClient
+    pub lavalink: LavalinkClient,
+    pub antispam: AntiSpam,
 }
 
 pub type CommandResult = Result<(), Error>;
@@ -41,10 +46,11 @@ pub fn create_framework() -> Framework<Data, Error> {
                 ..Default::default()
             },
             on_error: |error| Box::pin(error_handler(error)),
-            event_handler: |ctx, event, framework, _data| Box::pin(event_handler(ctx, event, framework)),
-            allowed_mentions: Some(serenity::CreateAllowedMentions::default()
-                .all_users(true)
-                .all_roles(true)
+            event_handler: |ctx, event, framework, data| Box::pin(event_handler(ctx, event, framework, data)),
+            allowed_mentions: Some(
+                serenity::CreateAllowedMentions::default()
+                    .all_users(true)
+                    .all_roles(true),
             ),
             ..Default::default()
         })
@@ -60,6 +66,7 @@ async fn lavalink_handler(ready: &Ready) -> Result<Data, Error> {
     let lavalink_host = dotenvy::var("LAVALINK_HOST").expect("missing LAVALINK_HOST");
     let lavalink_port = dotenvy::var("LAVALINK_PORT").expect("missing LAVALINK_PORT");
     let lavalink_password = dotenvy::var("LAVALINK_PASSWORD").expect("missing LAVALINK_PASSWORD");
+    let antispam = AntiSpam::load()?;
 
     let node = NodeBuilder {
         hostname: format!("{lavalink_host}:{lavalink_port}"),
@@ -83,21 +90,34 @@ async fn lavalink_handler(ready: &Ready) -> Result<Data, Error> {
         NodeDistributionStrategy::round_robin()
     ).await;
 
+    let data = Data {
+        lavalink,
+        antispam
+    };
+
     println!("Lavalink client initialized.");
 
-    Ok(Data {
-        lavalink,
-    })
+    Ok(data)
 }
 
 async fn event_handler(
     ctx: &serenity::Context,
     event: &FullEvent,
-    framework: FrameworkContext<'_, Data, Error>
+    framework: FrameworkContext<'_, Data, Error>,
+    data: &Data,
 ) -> CommandResult {
     match event {
-        FullEvent::Ready { data_about_bot } => println!("Logged in as {}", data_about_bot.user.name),
-        FullEvent::InteractionCreate { interaction } => interactions::handler(ctx, interaction, &framework).await?,
+        FullEvent::Ready { data_about_bot } => {
+            println!("Logged in as {}", data_about_bot.user.name)
+        }
+        FullEvent::Message { new_message } => {
+            if let Some(incident) = data.antispam.observe_message(new_message) {
+                data.antispam.enforce(ctx, incident).await?;
+            }
+        }
+        FullEvent::InteractionCreate { interaction } => {
+            interactions::handler(ctx, interaction, &framework).await?
+        }
         _ => ()
     }
 
