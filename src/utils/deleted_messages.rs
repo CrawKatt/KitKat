@@ -13,7 +13,7 @@ use serde_json::json;
 
 use super::Error;
 
-const DEFAULT_DATABASE_PATH: &str = "kitkat_deleted_messages.sqlite3";
+const DEFAULT_DATABASE_PATH: &str = "kitkat.sqlite3";
 
 pub struct DeletedMessageLogger {
     config: DeletedMessageConfig,
