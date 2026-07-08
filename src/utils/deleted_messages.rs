@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -21,7 +22,7 @@ pub struct DeletedMessageLogger {
 
 #[derive(Clone, Debug)]
 struct DeletedMessageConfig {
-    log_channel_id: Option<ChannelId>,
+    log_channels: HashMap<GuildId, ChannelId>,
     database_path: PathBuf,
 }
 
@@ -47,8 +48,8 @@ impl DeletedMessageLogger {
         logger.initialize()?;
 
         println!(
-            "DeletedMessageLogger initialized. log_channel_id={:?}, database_path={}",
-            logger.config.log_channel_id.map(ChannelId::get),
+            "DeletedMessageLogger initialized. configured_guilds={}, database_path={}",
+            logger.config.log_channels.len(),
             logger.config.database_path.display()
         );
 
@@ -56,11 +57,7 @@ impl DeletedMessageLogger {
     }
 
     pub fn remember_message(&self, message: &Message) {
-        if self
-            .config
-            .log_channel_id
-            .is_some_and(|channel_id| channel_id == message.channel_id)
-        {
+        if self.config.log_channel_for(message.guild_id) == Some(message.channel_id) {
             return;
         }
 
@@ -90,12 +87,18 @@ impl DeletedMessageLogger {
             }
         };
 
-        let embed = match message {
-            Some(message) => deletion_log_embed(&message, deleted_at),
-            None => missing_message_log_embed(guild_id, channel_id, message_id, deleted_at),
+        let (guild_id, embed) = match message {
+            Some(message) => (
+                message.guild_id.map(GuildId::new).or(guild_id),
+                deletion_log_embed(&message, deleted_at),
+            ),
+            None => (
+                guild_id,
+                missing_message_log_embed(guild_id, channel_id, message_id, deleted_at),
+            ),
         };
 
-        self.send_log(ctx, message_id, embed).await;
+        self.send_log(ctx, guild_id, message_id, embed).await;
     }
 
     pub async fn log_bulk_deleted_messages(
@@ -228,8 +231,14 @@ impl DeletedMessageLogger {
             .optional()
     }
 
-    async fn send_log(&self, ctx: &serenity::Context, message_id: MessageId, embed: CreateEmbed) {
-        let Some(log_channel_id) = self.config.log_channel_id else {
+    async fn send_log(
+        &self,
+        ctx: &serenity::Context,
+        guild_id: Option<GuildId>,
+        message_id: MessageId,
+        embed: CreateEmbed,
+    ) {
+        let Some(log_channel_id) = self.config.log_channel_for(guild_id) else {
             return;
         };
 
@@ -268,10 +277,6 @@ impl DeletedMessageConfig {
                 continue;
             }
 
-            if current_section != "deleted_messages" {
-                continue;
-            }
-
             let Some((raw_key, raw_value)) = line.split_once('=') else {
                 return Err(anyhow!("Linea {line_number}: se esperaba key = value").into());
             };
@@ -279,25 +284,39 @@ impl DeletedMessageConfig {
             let key = raw_key.trim();
             let value = raw_value.trim();
 
-            match key {
-                "log_channel_id" => {
-                    config.log_channel_id = Some(ChannelId::new(parse_u64(value, line_number, key)?));
+            match current_section.as_str() {
+                "deleted_messages" => match key {
+                    "database_path" => {
+                        config.database_path = PathBuf::from(trim_quotes(value));
+                    }
+                    "log_channel_id" => {
+                        println!(
+                            "DeletedMessageLogger: [deleted_messages].log_channel_id es global y sera ignorado. Configura [deleted_messages.log_channels] con guild_id = channel_id."
+                        );
+                    }
+                    _ => {}
                 }
-                "database_path" => {
-                    config.database_path = PathBuf::from(trim_quotes(value));
+                "deleted_messages.log_channels" => {
+                    let guild_id = GuildId::new(parse_u64(key, line_number, "guild_id")?);
+                    let channel_id = ChannelId::new(parse_u64(value, line_number, key)?);
+                    config.log_channels.insert(guild_id, channel_id);
                 }
-                _ => {}
+                _ => continue,
             }
         }
 
         Ok(config)
+    }
+
+    fn log_channel_for(&self, guild_id: Option<GuildId>) -> Option<ChannelId> {
+        guild_id.and_then(|guild_id| self.log_channels.get(&guild_id).copied())
     }
 }
 
 impl Default for DeletedMessageConfig {
     fn default() -> Self {
         Self {
-            log_channel_id: None,
+            log_channels: HashMap::new(),
             database_path: PathBuf::from(DEFAULT_DATABASE_PATH),
         }
     }
