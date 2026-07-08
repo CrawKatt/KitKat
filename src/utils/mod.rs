@@ -1,5 +1,6 @@
 mod antispam;
 mod buttons;
+mod deleted_messages;
 mod interactions;
 
 pub use buttons::*;
@@ -7,6 +8,7 @@ pub use buttons::*;
 use crate::audio::ready_event;
 use crate::commands::*;
 use antispam::AntiSpam;
+use deleted_messages::DeletedMessageLogger;
 use lavalink_rs::model::UserId;
 use lavalink_rs::model::events::Events;
 use lavalink_rs::prelude::{LavalinkClient, NodeBuilder, NodeDistributionStrategy};
@@ -29,6 +31,7 @@ impl TypeMapKey for HttpKey {
 pub struct Data {
     pub lavalink: LavalinkClient,
     pub antispam: AntiSpam,
+    pub deleted_messages: DeletedMessageLogger,
 }
 
 pub type CommandResult = Result<(), Error>;
@@ -67,6 +70,7 @@ async fn lavalink_handler(ready: &Ready) -> Result<Data, Error> {
     let lavalink_port = dotenvy::var("LAVALINK_PORT").expect("missing LAVALINK_PORT");
     let lavalink_password = dotenvy::var("LAVALINK_PASSWORD").expect("missing LAVALINK_PASSWORD");
     let antispam = AntiSpam::load()?;
+    let deleted_messages = DeletedMessageLogger::load()?;
 
     let node = NodeBuilder {
         hostname: format!("{lavalink_host}:{lavalink_port}"),
@@ -92,7 +96,8 @@ async fn lavalink_handler(ready: &Ready) -> Result<Data, Error> {
 
     let data = Data {
         lavalink,
-        antispam
+        antispam,
+        deleted_messages,
     };
 
     println!("Lavalink client initialized.");
@@ -111,9 +116,34 @@ async fn event_handler(
             println!("Logged in as {}", data_about_bot.user.name)
         }
         FullEvent::Message { new_message } => {
+            data.deleted_messages.remember_message(new_message);
+
             if let Some(incident) = data.antispam.observe_message(new_message) {
                 data.antispam.enforce(ctx, incident).await?;
             }
+        }
+        FullEvent::MessageUpdate { new, .. } => {
+            if let Some(updated_message) = new {
+                data.deleted_messages.remember_message(updated_message);
+            }
+        }
+        FullEvent::MessageDelete {
+            channel_id,
+            deleted_message_id,
+            guild_id,
+        } => {
+            data.deleted_messages
+                .log_deleted_message(ctx, *guild_id, *channel_id, *deleted_message_id)
+                .await;
+        }
+        FullEvent::MessageDeleteBulk {
+            channel_id,
+            multiple_deleted_messages_ids,
+            guild_id,
+        } => {
+            data.deleted_messages
+                .log_bulk_deleted_messages(ctx, *guild_id, *channel_id, multiple_deleted_messages_ids)
+                .await;
         }
         FullEvent::InteractionCreate { interaction } => {
             interactions::handler(ctx, interaction, &framework).await?

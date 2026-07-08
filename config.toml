@@ -8,3 +8,10 @@ duplicate_window_seconds = 12
 
 # Cantidad minima de canales distintos antes de aplicar la sancion.
 distinct_channels_threshold = 3
+
+[deleted_messages]
+# ID del canal donde el bot enviara logs de mensajes borrados.
+log_channel_id = 1193595925503942688
+
+# Ruta de la base SQLite embebida para recordar mensajes antes de que sean borrados.
+database_path = "kitkat.sqlite3"
