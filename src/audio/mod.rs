@@ -1,3 +1,7 @@
+mod voicevox;
+
+pub use voicevox::VoiceVoxClient;
+
 use lavalink_rs::hook;
 use lavalink_rs::model::events;
 use lavalink_rs::prelude::LavalinkClient;

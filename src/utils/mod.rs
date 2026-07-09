@@ -5,7 +5,7 @@ mod interactions;
 
 pub use buttons::*;
 
-use crate::audio::ready_event;
+use crate::audio::{ready_event, VoiceVoxClient};
 use crate::commands::*;
 use antispam::AntiSpam;
 use deleted_messages::DeletedMessageLogger;
@@ -32,6 +32,7 @@ pub struct Data {
     pub lavalink: LavalinkClient,
     pub antispam: AntiSpam,
     pub deleted_messages: DeletedMessageLogger,
+    pub voicevox: VoiceVoxClient,
 }
 
 pub type CommandResult = Result<(), Error>;
@@ -71,6 +72,7 @@ async fn lavalink_handler(ready: &Ready) -> Result<Data, Error> {
     let lavalink_password = dotenvy::var("LAVALINK_PASSWORD").expect("missing LAVALINK_PASSWORD");
     let antispam = AntiSpam::load()?;
     let deleted_messages = DeletedMessageLogger::load()?;
+    let voicevox = VoiceVoxClient::from_env()?;
 
     let node = NodeBuilder {
         hostname: format!("{lavalink_host}:{lavalink_port}"),
@@ -98,9 +100,10 @@ async fn lavalink_handler(ready: &Ready) -> Result<Data, Error> {
         lavalink,
         antispam,
         deleted_messages,
+        voicevox,
     };
 
-    println!("Lavalink client initialized.");
+    println!("Lavalink client initialized. VOICEVOX speaker_id={}", data.voicevox.speaker_id());
 
     Ok(data)
 }
@@ -173,6 +176,7 @@ pub async fn error_handler(error: FrameworkError<'_, Data, Error>) {
 pub fn load_commands() -> Vec<Command<Data, Error>> {
     vec![
         translate(),
+        translate_voice(),
         join(),
         leave(),
         play(),
