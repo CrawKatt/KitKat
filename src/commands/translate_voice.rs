@@ -1,4 +1,4 @@
-use crate::commands::create_ai_message;
+use crate::commands::create_ai_message_for_voice;
 use crate::utils::{CommandResult, Context, Error};
 use poise::CreateReply;
 use serenity::all::ChannelId;
@@ -20,7 +20,7 @@ pub async fn translate_voice(
     let loading = ctx.say("Traduciendo y preparando voz...").await?;
 
     let channel_id = user_voice_channel(ctx)?;
-    let japanese = create_ai_message(prompt).await?;
+    let japanese = create_ai_message_for_voice(prompt).await?;
 
     if japanese.trim().is_empty() {
         loading.edit(ctx, CreateReply::default().content("La traducción llegó vacía.")).await?;

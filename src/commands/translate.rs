@@ -1,14 +1,20 @@
-use std::fs;
-use once_cell::sync::Lazy;
 use crate::utils::{CommandResult, Context, Error};
+use once_cell::sync::Lazy;
 use openai_api_rs::v1::api::Client;
 use openai_api_rs::v1::chat_completion;
 use openai_api_rs::v1::chat_completion::{ChatCompletionRequest, ChatCompletionResponse};
 use poise::CreateReply;
 use regex::Regex;
+use std::fs;
 
 const SYSTEM_PROMPT: Lazy<String> = Lazy::new(|| {
     fs::read_to_string("translate.md").expect("Failed to read system prompt")
+});
+
+const VOICE_SYSTEM_PROMPT: Lazy<String> = Lazy::new(|| {
+    let base = fs::read_to_string("translate.md").expect("Failed to read system prompt");
+    let voice = fs::read_to_string("translate_voice.md").expect("Failed to read voice system prompt rules");
+    format!("{base}\n\n{voice}")
 });
 
 #[poise::command(
@@ -23,7 +29,7 @@ pub async fn translate(
     ctx: Context<'_>,
     #[description = "Texto a enviar al modelo de IA"]
     #[rest]
-    prompt: String
+    prompt: String,
 ) -> CommandResult {
     let loading = ctx.say("Cargando...").await?;
     let message = create_ai_message(prompt).await?;
@@ -34,7 +40,7 @@ pub async fn translate(
     Ok(())
 }
 
-fn create_request(prompt: String) -> Result<ChatCompletionResponse, Error> {
+fn create_request(prompt: String, system_prompt: &str) -> Result<ChatCompletionResponse, Error> {
     let url = dotenvy::var("OPENAI_API_BASE").expect("OPENAI_API_BASE not found");
     let api_key = dotenvy::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found");
     let model = dotenvy::var("AI_MODEL").expect("AI_MODEL not found");
@@ -45,36 +51,59 @@ fn create_request(prompt: String) -> Result<ChatCompletionResponse, Error> {
         vec![
             chat_completion::ChatCompletionMessage {
                 role: chat_completion::MessageRole::system,
-                content: chat_completion::Content::Text(SYSTEM_PROMPT.clone()),
+                content: chat_completion::Content::Text(system_prompt.to_string()),
                 name: None,
             },
             chat_completion::ChatCompletionMessage {
                 role: chat_completion::MessageRole::user,
                 content: chat_completion::Content::Text(prompt),
                 name: None,
-            }
+            },
         ],
-    ).max_tokens(1024);
+    )
+    .max_tokens(1024);
 
     let request = client.chat_completion(req)?;
 
     Ok(request)
 }
 
+fn strip_think_tags(mut message: String) -> Result<String, Error> {
+    let re = Regex::new(r"(?s)<think>.*?</think>")?;
+    message = re.replace_all(&message, "").trim().to_string();
+    Ok(message)
+}
+
 pub async fn create_ai_message(prompt: String) -> Result<String, Error> {
-    let response = create_request(prompt)?;
+    let response = create_request(prompt, &SYSTEM_PROMPT)?;
     let message = response
         .choices
         .into_iter()
         .next()
-        .and_then(|char| char.message.content);
+        .and_then(|choice| choice.message.content);
 
-    let Some(mut message) = message else {
-        return Err(Error::from("No se recibió una respuesta válida del modelo de IA".to_string()));
+    let Some(message) = message else {
+        return Err(Error::from(
+            "No se recibió una respuesta válida del modelo de IA".to_string(),
+        ));
     };
 
-    let re = Regex::new(r"(?s)<think>.*?</think>")?;
-    message = re.replace_all(&message, "").trim().to_string();
+    strip_think_tags(message)
+}
 
-    Ok(message)
+pub async fn create_ai_message_for_voice(prompt: String) -> Result<String, Error> {
+    let response = create_request(prompt, &VOICE_SYSTEM_PROMPT)?;
+    let message = response
+        .choices
+        .into_iter()
+        .next()
+        .and_then(|choice| choice.message.content);
+
+    let Some(message) = message else {
+        return Err(Error::from(
+            "No se recibió una respuesta válida del modelo de IA".to_string(),
+        ));
+    };
+
+    strip_think_tags(message)
 }
