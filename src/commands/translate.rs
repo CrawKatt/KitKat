@@ -11,12 +11,6 @@ const SYSTEM_PROMPT: Lazy<String> = Lazy::new(|| {
     fs::read_to_string("translate.md").expect("Failed to read system prompt")
 });
 
-const VOICE_SYSTEM_PROMPT: Lazy<String> = Lazy::new(|| {
-    let base = fs::read_to_string("translate.md").expect("Failed to read system prompt");
-    let voice = fs::read_to_string("translate_voice.md").expect("Failed to read voice system prompt rules");
-    format!("{base}\n\n{voice}")
-});
-
 #[poise::command(
     prefix_command,
     slash_command,
@@ -76,23 +70,6 @@ fn strip_think_tags(mut message: String) -> Result<String, Error> {
 
 pub async fn create_ai_message(prompt: String) -> Result<String, Error> {
     let response = create_request(prompt, &SYSTEM_PROMPT)?;
-    let message = response
-        .choices
-        .into_iter()
-        .next()
-        .and_then(|choice| choice.message.content);
-
-    let Some(message) = message else {
-        return Err(Error::from(
-            "No se recibió una respuesta válida del modelo de IA".to_string(),
-        ));
-    };
-
-    strip_think_tags(message)
-}
-
-pub async fn create_ai_message_for_voice(prompt: String) -> Result<String, Error> {
-    let response = create_request(prompt, &VOICE_SYSTEM_PROMPT)?;
     let message = response
         .choices
         .into_iter()
